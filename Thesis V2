@@ -1,0 +1,139 @@
+rm(list = ls())
+install.packages("readxl")
+install.packages("latticeExtra")
+library("stats")
+library("MASS")
+library("lmtest")
+library("aTSA")
+library("stargazer")
+library("RFGLS")
+library("sjPlot")
+library("sjmisc")
+library("sjlabelled")
+library("ggpubr")
+library("LatticeExtra")
+
+GDP <- datascriptie$`GDP (million)`
+L <- datascriptie$`Emply x ratio (million)`
+K <- datascriptie$`Capital (million)`
+
+GDP <- ts(GDP, start = 1951, frequency = 4)
+L <- ts(L, start = 1951, frequency = 4)
+K <- ts(K, start = 1951, frequency = 4)
+
+logGDP <- log(GDP)
+logL <- log(L)
+logK <- log(K)
+
+regols <- lm(logGDP ~ logK + logL)
+
+reggls <- gls(logGDP ~ logK + logL,
+              data=datascriptie, correlation=corARMA(p=1), method="ML")
+
+var_res_ols <- var(regols$residuals)
+var_res_gls <- var(reggls$residuals)
+
+
+
+summary(regols)
+
+Beta_0_ols <- regols$coefficients[1]
+Beta_1_ols <- regols$coefficients[2]
+Beta_2_ols <- regols$coefficients[3]
+
+summary(reggls)
+
+Beta_0_gls <- reggls$coefficients[1]
+Beta_1_gls <- reggls$coefficients[2]
+Beta_2_gls <- reggls$coefficients[3]
+
+
+n = 277
+M = 1000 
+h <- 213
+
+C_ols <- rep(0, M)
+K_ols <- rep(0, M)
+L_ols <- rep(0, M)
+beta_ols <- matrix(0, ncol = 3, nrow = 1000)
+Y_store1 <- rep(0, M)
+Y_store2 <- rep(0, M)
+sig2_ols <- rep(0, M)
+vcov_ols <- matrix(0, nrow = 3000, ncol = 3)
+delh <- as.numeric(c(0, logK[h]-logK[188], logL[h]-logL[188]))
+G_kj <- rep(0, M)
+hyper_ols <- rep(0, M)
+
+C_gls <- rep(0, M)
+K_gls <- rep(0, M)
+L_gls <- rep(0, M)
+beta_gls <- matrix(0, ncol = 3, nrow = 1000)
+Y_gstore1 <- rep(0, M)
+Y_gstore2 <- rep(0, M)
+sig2_gls <- rep(0, M)
+vcov_gls <- matrix(0, nrow = 3000, ncol = 3)
+G_gls <- rep(0, M)
+hyper_gls <- rep(0, M)
+Greal <- rep(0, M)
+Diff_OLS <- rep(0,M)
+Diff_GLS <- rep(0,M)
+
+for (i in 1:M){
+
+U_i <- diffinv(rnorm(n-1, mean = 0, sd = var_res_ols))
+Y_i <- Beta_0_ols + logK*Beta_1_ols + logL*Beta_2_ols + U_i 
+
+ols_i <- lm(Y_i ~ logK + logL) 
+
+C_ols[i] <- ols_i$coefficients[1]
+K_ols[i] <- ols_i$coefficients[2]
+L_ols[i] <- ols_i$coefficients[3]
+
+beta_ols[i,] <- c(C_ols[i], K_ols[i], L_ols[i])
+
+Y_store1[i] <- Y_i[188]
+Y_store2[i] <- Y_i[h]
+sig2_ols[i] <- ols_i$residuals%*%ols_i$residuals/(n-3)
+vcov_ols[((3*i)-2):(3*i),(1:3)] <- as.numeric(vcov(ols_i))
+hyper_ols[i] <- genhypergeo(NULL, (277-3)/2, ((277-3)/4)*((h-188)*sig2_ols[i] - delh%*%(vcov_ols[((3*i)-2):(3*i),(1:3)])%*%delh), tol = 1e-06, 
+            maxiter = 2000)
+
+G_kj[i] <- 100*(exp(delh%*%beta_ols[i,])*hyper_ols[i] - 1)
+
+gls_i <- gls(Y_i ~ logK + logL,
+             data=datascriptie, correlation=corARMA(p=1), method="ML")
+
+C_gls[i] <- gls_i$coefficients[1]
+K_gls[i] <- gls_i$coefficients[2]
+L_gls[i] <- gls_i$coefficients[3]
+
+beta_gls[i,] <- c(C_gls[i], K_gls[i], L_gls[i])
+
+Y_gstore1[i] <- Ygls_i[188]
+Y_gstore2[i] <- Ygls_i[h]
+sig2_gls[i] <- gls_i$residuals%*%gls_i$residuals/(n-3)
+vcov_gls[((3*i)-2):(3*i),(1:3)] <- as.numeric(vcov(gls_i))
+hyper_gls[i] <- genhypergeo(NULL, (277-3)/2, ((277-3)/4)*((h-188)*sig2_gls[i] - delh%*%(vcov_gls[((3*i)-2):(3*i),(1:3)])%*%delh), tol = 1e-06, 
+                            maxiter = 2000)
+
+G_gls[i] <- 100*(exp(delh%*%beta_gls[i,])*hyper_gls[i] - 1)
+
+Greal[i] <- 100*(exp(Y_i[h]) - exp(Y_i[188]))/exp(Y_i[188])
+Diff_OLS[i] <- (Greal[i]-G_kj[i])^2
+Diff_GLS[i] <- (Greal[i]-G_gls[i])^2
+}
+
+mean(Diff_OLS)
+mean(Diff_GLS)
+plot(density(Diff_OLS), main = 'OLS (h = 25)', xlab = 'Squared differences')
+plot(density(Diff_GLS), main = 'FGLS (h = 25)', xlab = 'Squared differences')
+
+q95ols1 <- quantile(Diff_OLS, 0.95)
+q95ols1
+q95gls1 <- quantile(Diff_GLS, 0.95)
+q95gls1
+
+
+
+
+
